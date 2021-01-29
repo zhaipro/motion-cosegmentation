@@ -5,7 +5,7 @@ Dense motion module from first order motion model, it is not part of the paper a
 from torch import nn
 import torch.nn.functional as F
 import torch
-from modules.util import Hourglass, AntiAliasInterpolation2d, make_coordinate_grid, kp2gaussian
+from modules.util import Hourglass, AntiAliasInterpolation2d, make_coordinate_grid, kp2gaussian_new
 
 
 class DenseMotionNetwork(nn.Module):
@@ -14,10 +14,10 @@ class DenseMotionNetwork(nn.Module):
     """
 
     def __init__(self, block_expansion=64, num_blocks=5, max_features=1024, num_kp=10, num_channels=3,
-                 estimate_visibility=True, scale_factor=0.25, kp_variance=0.01):
+                 estimate_visibility=True, scale_factor=0.25, kp_variance=0.01, use_att=False, use_inter=True):
         super(DenseMotionNetwork, self).__init__()
         self.hourglass = Hourglass(block_expansion=block_expansion, in_features=(num_kp + 1) * (num_channels + 1),
-                                   max_features=max_features, num_blocks=num_blocks)
+                                   max_features=max_features, num_blocks=num_blocks, use_att=use_att, use_inter=use_inter)
 
         self.mask = nn.Conv2d(self.hourglass.out_filters, num_kp + 1, kernel_size=(7, 7), padding=(3, 3))
 
@@ -33,13 +33,13 @@ class DenseMotionNetwork(nn.Module):
         if self.scale_factor != 1:
             self.down = AntiAliasInterpolation2d(num_channels, self.scale_factor)
 
-    def create_heatmap_representations(self, source_image, seg_target, seg_source):
+    def create_heatmap_representations(self, source_image, target_mean, source_mean):
         """
         Eq 6. in the paper H_k(z)
         """
         spatial_size = source_image.shape[2:]
-        gaussian_target = kp2gaussian(seg_target, spatial_size=spatial_size, kp_variance=self.kp_variance)
-        gaussian_source = kp2gaussian(seg_source, spatial_size=spatial_size, kp_variance=self.kp_variance)
+        gaussian_target = kp2gaussian_new(target_mean, spatial_size=spatial_size, kp_variance=self.kp_variance)
+        gaussian_source = kp2gaussian_new(source_mean, spatial_size=spatial_size, kp_variance=self.kp_variance)
         heatmap = gaussian_target - gaussian_source
 
         # adding background feature
@@ -48,19 +48,19 @@ class DenseMotionNetwork(nn.Module):
         heatmap = heatmap.unsqueeze(2)
         return heatmap
 
-    def create_sparse_motions(self, source_image, seg_target, seg_source):
+    def create_sparse_motions(self, source_image, target_affine, source_affine, target_shift, source_shift):
         bs, _, h, w = source_image.shape
-        identity_grid = make_coordinate_grid((h, w), type=seg_source['shift'].type())
+        identity_grid = make_coordinate_grid((h, w), type=source_shift.type())
         identity_grid = identity_grid.view(1, 1, h, w, 2)
-        coordinate_grid = identity_grid - seg_target['shift'].view(bs, self.num_kp, 1, 1, 2)
-        if 'affine' in seg_target:
-            affine = torch.matmul(seg_source['affine'], torch.inverse(seg_target['affine']))
-            affine = affine.unsqueeze(-3).unsqueeze(-3)
-            affine = affine.repeat(1, 1, h, w, 1, 1)
-            coordinate_grid = torch.matmul(affine, coordinate_grid.unsqueeze(-1))
-            coordinate_grid = coordinate_grid.squeeze(-1)
+        coordinate_grid = identity_grid - target_shift.view(bs, self.num_kp, 1, 1, 2)
 
-        target_to_source = coordinate_grid + seg_source['shift'].view(bs, self.num_kp, 1, 1, 2)
+        affine = torch.matmul(source_affine, torch.inverse(target_affine))
+        affine = affine.unsqueeze(-3).unsqueeze(-3)
+        affine = affine.repeat(1, 1, h, w, 1, 1)
+        coordinate_grid = torch.matmul(affine, coordinate_grid.unsqueeze(-1))
+        coordinate_grid = coordinate_grid.squeeze(-1)
+
+        target_to_source = coordinate_grid + source_shift.view(bs, self.num_kp, 1, 1, 2)
 
         # adding background feature
         identity_grid = identity_grid.repeat(bs, 1, 1, 1, 1)
@@ -76,15 +76,15 @@ class DenseMotionNetwork(nn.Module):
         sparse_deformed = sparse_deformed.view((bs, self.num_kp + 1, -1, h, w))
         return sparse_deformed
 
-    def forward(self, source_image, seg_target, seg_source):
+    def forward(self, source_image, target_affine, source_affine, target_shift, source_shift):
         if self.scale_factor != 1:
             source_image = self.down(source_image)
 
         bs, _, h, w = source_image.shape
 
         out_dict = dict()
-        heatmap_representation = self.create_heatmap_representations(source_image, seg_target, seg_source)
-        sparse_motion = self.create_sparse_motions(source_image, seg_target, seg_source)
+        heatmap_representation = self.create_heatmap_representations(source_image, target_shift, source_shift)
+        sparse_motion = self.create_sparse_motions(source_image, target_affine, source_affine, target_shift, source_shift)
         deformed_source = self.create_deformed_source_image(source_image, sparse_motion)
         out_dict['sparse_deformed'] = deformed_source
 

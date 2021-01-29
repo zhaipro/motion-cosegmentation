@@ -10,11 +10,11 @@ class SegmentationModule(nn.Module):
     """
 
     def __init__(self, block_expansion, num_segments, num_channels, max_features,
-                 num_blocks, temperature, estimate_affine_part=False, scale_factor=1):
+                 num_blocks, temperature, estimate_affine_part=False, scale_factor=1, use_att=False, use_inter=True):
         super(SegmentationModule, self).__init__()
 
         self.predictor = Hourglass(block_expansion, in_features=num_channels,
-                                   max_features=max_features, num_blocks=num_blocks)
+                                   max_features=max_features, num_blocks=num_blocks, use_att=use_att, use_inter=use_inter)
         self.num_segments = num_segments
         self.shift = nn.Conv2d(in_channels=self.predictor.out_filters, out_channels=num_segments, kernel_size=(7, 7),
                                padding=(3, 3))
@@ -49,19 +49,15 @@ class SegmentationModule(nn.Module):
     def forward(self, x):
         if self.scale_factor != 1:
             x = self.down(x)
-
-        out = {}
         feature_map = self.predictor(x)
-        out['segmentation'] = F.softmax(self.segmentation(feature_map), dim=1)
-
         prediction = self.shift(feature_map)
-
         final_shape = prediction.shape
         heatmap = prediction.view(final_shape[0], final_shape[1], -1)
         heatmap = F.softmax(heatmap / self.temperature, dim=2)
         heatmap = heatmap.view(*final_shape)
 
-        out['shift'] = self.gaussian2kp(heatmap)
+        shifts = self.gaussian2kp(heatmap)
+        affines = None
 
         if self.affine is not None:
             affine_map = self.affine(feature_map)
@@ -73,6 +69,5 @@ class SegmentationModule(nn.Module):
             affine = affine.view(final_shape[0], final_shape[1], 4, -1)
             affine = affine.sum(dim=-1)
             affine = affine.view(affine.shape[0], affine.shape[1], 2, 2)
-            out['affine'] = affine
-
-        return out
+            affines = affine
+        return shifts, affines

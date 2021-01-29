@@ -11,7 +11,7 @@ class ReconstructionModule(nn.Module):
     """
 
     def __init__(self, num_channels, block_expansion, max_features, num_down_blocks,
-                 num_bottleneck_blocks, num_segments, estimate_visibility=False, **kwargs):
+                 num_bottleneck_blocks, num_segments, estimate_visibility=False, use_att=False, **kwargs):
         super(ReconstructionModule, self).__init__()
 
         self.first = SameBlock2d(num_channels, block_expansion, kernel_size=(7, 7), padding=(3, 3))
@@ -27,13 +27,13 @@ class ReconstructionModule(nn.Module):
         for i in range(num_down_blocks):
             in_features = min(max_features, block_expansion * (2 ** (num_down_blocks - i)))
             out_features = min(max_features, block_expansion * (2 ** (num_down_blocks - i - 1)))
-            up_blocks.append(UpBlock2d(in_features, out_features, kernel_size=(3, 3), padding=(1, 1)))
+            up_blocks.append(UpBlock2d(in_features, out_features, kernel_size=(3, 3), padding=(1, 1), use_att=use_att))
         self.up_blocks = nn.ModuleList(up_blocks)
 
         self.bottleneck = torch.nn.Sequential()
         in_features = min(max_features, block_expansion * (2 ** num_down_blocks))
         for i in range(num_bottleneck_blocks):
-            self.bottleneck.add_module('r' + str(i), ResBlock2d(in_features, kernel_size=(3, 3), padding=(1, 1)))
+            self.bottleneck.add_module('r' + str(i), ResBlock2d(in_features, kernel_size=(3, 3), padding=(1, 1), use_att=use_att))
 
         self.final = nn.Conv2d(block_expansion, num_channels, kernel_size=(7, 7), padding=(3, 3))
         self.estimate_visibility = estimate_visibility

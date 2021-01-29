@@ -19,6 +19,7 @@ def partial_state_dict_load(module, state_dict):
         if isinstance(param, torch.nn.Parameter):
             # backwards compatibility for serialized parameters
             param = param.data
+
         own_state[name].copy_(param)
 
 
@@ -26,7 +27,7 @@ def load_reconstruction_module(module, checkpoint):
     if 'generator' in checkpoint:
         partial_state_dict_load(module, checkpoint['generator'])
     else:
-        module.load_state_dict(checkpoint['reconstruction_module'])
+        module.load_state_dict(checkpoint['reconstruction_module'], strict=False)
 
 
 def load_segmentation_module(module, checkpoint):
@@ -36,11 +37,6 @@ def load_segmentation_module(module, checkpoint):
         module.state_dict()['affine.bias'].copy_(checkpoint['kp_detector']['jacobian.bias'])
         module.state_dict()['shift.weight'].copy_(checkpoint['kp_detector']['kp.weight'])
         module.state_dict()['shift.bias'].copy_(checkpoint['kp_detector']['kp.bias'])
-        if 'semantic_seg.weight' in checkpoint['kp_detector']:
-            module.state_dict()['segmentation.weight'].copy_(checkpoint['kp_detector']['semantic_seg.weight'])
-            module.state_dict()['segmentation.bias'].copy_(checkpoint['kp_detector']['semantic_seg.bias'])
-        else:
-            print ('Segmentation part initialized at random.')
     else:
         module.load_state_dict(checkpoint['segmentation_module'])
 

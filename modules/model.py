@@ -149,6 +149,7 @@ class FullModel(torch.nn.Module):
                 x_vgg = self.vgg(pyramide_generated['prediction_' + str(scale)])
                 y_vgg = self.vgg(pyramide_real['prediction_' + str(scale)])
 
+                # Vgg的四个层输出的结果对应相减的绝对值之和，这里每层的差值都是加权后相加
                 for i, weight in enumerate(self.loss_weights['perceptual']):
                     value = torch.abs(x_vgg[i] - y_vgg[i].detach()).mean()
                     value_total += self.loss_weights['perceptual'][i] * value
