@@ -510,8 +510,7 @@ class face_swaper:
 
     def swap_face(self, source_image, target_video, tmp_folder, result_video_name, verbose=True):
         # 生成中间文件存放文件夹
-        if not os.path.exists(tmp_folder):
-            subprocess.call(f"mkdir -p {tmp_folder}", shell=True)
+        os.makedirs(tmp_folder, exist_ok=True)
 
         if verbose:
             print("="*30)
@@ -598,15 +597,6 @@ class face_swaper:
         out_file = result_video_name[:-4]+'_scale.mp4'
         p = subprocess.Popen(f"{self.ffmpeg} -y -resize {int(int(crop_info[0]/2)*2)}x{int(int(crop_info[1]/2)*2)} -c:v h264_cuvid -i {result_video_name} -b:v 8M -v quiet {out_file}", shell=True)
 
-        # ## Try
-        # print('-'*30)
-        # print('TRY!!!')
-        # print('-'*30)
-        # p = subprocess.Popen([f"ffmpeg", "-y", "-resize", f"{int(int(crop_info[0]/2)*2)}x{int(int(crop_info[1]/2)*2)}", "-c:v", "h264_cuvid", "-i", "-", "-b:v", "8M", "-f", "image2pipe", f"{out_file}"], stdin=subprocess.PIPE)
-        # for frame in predictions:
-        #     p.stdin = img_as_ubyte(frame)
-
-
         p.wait()
         in_file = out_file
         out_file = result_video_name
@@ -614,7 +604,6 @@ class face_swaper:
         p.wait()
         p = subprocess.Popen(f"{self.ffmpeg} -y -i {out_file} -i {target_video} -map 0 -c:v h264_nvenc -b:v 8M -map 1 -c:a copy -strict experimental -pix_fmt yuv420p -v quiet {out_file}", shell=True)
         p.wait()
-        # subprocess.call(f"rm {result_video_name[:-4]+'_scale.mp4'}", shell=True)
         if verbose:
             print('   - 拼接至原视频时间: ', time.time()-start)
             print('   - 总体运行时间: ', time.time()-all_start)
