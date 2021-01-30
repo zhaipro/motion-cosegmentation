@@ -33,15 +33,8 @@ class LandmarksDetector:
             except:
                 print("Exception in get_landmarks()!")
 
-def unpack_bz2(src_path):
-    data = bz2.BZ2File(src_path, mode='r').read()
-    dst_path = src_path[:-4]
-    with open(dst_path, 'wb') as fp:
-        fp.write(data)
-    return dst_path
 
-
-landmarks_model_path = unpack_bz2(os.path.join(root_path,'shape_predictor_68_face_landmarks.dat.bz2'))
+landmarks_model_path = os.path.join(root_path, 'shape_predictor_68_face_landmarks.dat')
 landmarks_detector = LandmarksDetector(landmarks_model_path)
 
 
@@ -57,7 +50,7 @@ def image_align(src_file, dst_file, output_size, trg_file, transform_size=4096, 
         """
         # Align function from FFHQ dataset pre-processing step
         # https://github.com/NVlabs/ffhq-dataset/blob/master/download_ffhq.py
-        
+
         face_landmarks = landmarks_detector.get_landmarks(src_file)
 
         # Get all faces
@@ -75,7 +68,7 @@ def image_align(src_file, dst_file, output_size, trg_file, transform_size=4096, 
         lm_eye_right     = lm[42 : 48]  # left-clockwise
         lm_mouth_outer   = lm[48 : 60]  # left-clockwise
         lm_mouth_inner   = lm[60 : 68]  # left-clockwise
-        
+
         # Calculate auxiliary vectors.
         eye_left     = np.mean(lm_eye_left, axis=0)
         eye_right    = np.mean(lm_eye_right, axis=0)
@@ -144,18 +137,18 @@ def image_align(src_file, dst_file, output_size, trg_file, transform_size=4096, 
         img = img.transform((transform_size, transform_size), PIL.Image.QUAD, (quad + 0.5).flatten(), PIL.Image.BILINEAR)
         if output_size < transform_size:
             img = img.resize((output_size, output_size), PIL.Image.ANTIALIAS)
-        
+
         # 规范生成图片的后缀名，统一设为'.jpg'.
         dst_file_this = dst_file.replace('.jpeg', '.jpg')
         dst_file_this = dst_file.replace('.png', '.jpg')
-        img.convert('RGB').save(dst_file_this, 'JPEG')  
-        
+        img.convert('RGB').save(dst_file_this, 'JPEG')
+
 
         # 根据target图片作对齐
         if trg_file:
             # 获取图片
             src_img = cv.imread(dst_file_this)
-            
+
             # 获取脸部关键点
             src_lmks = landmarks_detector.get_landmarks(dst_file_this)
             trg_lmks = landmarks_detector.get_landmarks(trg_file)
@@ -167,7 +160,7 @@ def image_align(src_file, dst_file, output_size, trg_file, transform_size=4096, 
             trg_lm = list(trg_lmks)[0]
             trg_lm_left  = trg_lm[0]
             trg_lm_right = trg_lm[16]
-            
+
             # 计算缩放大小
             src_dist = get_dist(src_lm_left, src_lm_right)
             trg_dist = get_dist(trg_lm_left, trg_lm_right)
@@ -185,7 +178,7 @@ def image_align(src_file, dst_file, output_size, trg_file, transform_size=4096, 
             angle = trg_angle - src_angle
             rotate_matrix = cv.getRotationMatrix2D(src_lm_left, angle, scale=1)
             rotate_src_img = cv.warpAffine(scale_src_img, rotate_matrix, src_shape_new)
-            
+
             # 计算平移
             dy = trg_lm_left[1]-src_lm_left[1]*dist_scale
             dx = trg_lm_left[0]-src_lm_left[0]*dist_scale
