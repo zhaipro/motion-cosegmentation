@@ -278,8 +278,6 @@ class face_swaper:
         is_hard = False
         use_color_old_method = True  # True就是用之前的颜色分布算法，False就是低通滤波加高通滤波的光照学习
 
-
-
         if not use_color_old_method:
             def get_kernel(scale, low=True):
                 channels = 3
@@ -312,8 +310,6 @@ class face_swaper:
                 return kernel, ka, kb
 
 
-
-
         with torch.no_grad():
             predictions = []
             source = torch.tensor(source_image[np.newaxis].astype(np.float32)).permute(0, 3, 1, 2)
@@ -332,7 +328,7 @@ class face_swaper:
                 source_mask = (source-face_parser.mean)/face_parser.std
                 source_mask = torch.softmax(face_parser(source_mask)[0], dim=1)
             else:
-                raise(Exception)
+                raise Exception
             # 这里计算平均值的时候用的是source的脸、鼻子、眉毛、上嘴唇、下嘴唇、脖子7个部分计算的，因为之后在做分布转化的时候如果没有眉毛部分，由于分割算法不精细会有镂空的现象
             source_mask_face = source_mask[:, [1,2,3,10,12,13,14]].sum(dim=1, keepdim=True)
             source_mask_face = (source_mask_face>0.5).view(512, 512)
@@ -344,23 +340,14 @@ class face_swaper:
             source_std = torch.std(source_mask, dim=-1).squeeze()
             #################################################################
 
-
             ## 批量计算seg_targets
             n = target.shape[0]
-            remain = n%bz
             shifts = []
             affines = []
 
             start = time.time()
-            for batch_i in range(n//bz):
-                s = time.time()
+            for batch_i in range((n + bz - 1) // bz):
                 batch_t = target[(batch_i*bz):(batch_i*bz+bz)].cuda()
-                shift, affine = segmentation_module(batch_t)
-                # print('--- model run time: ', time.time()-s)
-                shifts.extend(shift)
-                affines.extend(affine)
-            if remain:
-                batch_t = target[n//bz*bz:].cuda()
                 shift, affine = segmentation_module(batch_t)
                 shifts.extend(shift)
                 affines.extend(affine)
@@ -417,7 +404,7 @@ class face_swaper:
             ## 批量计算生成图片
             predictions = []
             start = time.time()
-            for batch_i in range(n//bz):
+            for batch_i in range((n + bz - 1) // bz):
                 bt_source = source_images[batch_i*bz:(batch_i*bz+bz)]
                 bt_target = target[batch_i*bz:(batch_i*bz+bz)]
                 bt_tgt_affine = affines[batch_i*bz:(batch_i*bz+bz)]
@@ -426,7 +413,6 @@ class face_swaper:
                 bt_src_shift = source_shift[batch_i*bz:(batch_i*bz+bz)]
                 bt_blend_mask = blend_mask_parts[batch_i*bz:(batch_i*bz+bz)]
                 out = reconstruction_module(source_image=bt_source, target_image=bt_target, target_affine=bt_tgt_affine, target_shift=bt_tgt_shift, source_affine=bt_src_affine, source_shift=bt_src_shift, blend_mask = bt_blend_mask)
-
 
 
                 #####
@@ -452,57 +438,9 @@ class face_swaper:
                     save_img(high_out, 'high_out.jpg')
                     save_img(low_in, 'low_in.jpg')
 
-
                     out[bt_blend_mask_hard] = 0.5*out[bt_blend_mask_hard] + 0.5*low_in[bt_blend_mask_hard]
 
-                    # rfft_out = torch.rfft(out.permute(0,2,3,1),3,onesided=False)
-
-                    # print('rfft_out.shape: ', rfft_out.shape)
-                    # print('high_out.permute(0,2,3,1).unsqueeze(-1).shape: ', high_out.permute(0,2,3,1).unsqueeze(-1).shape)
-
-                    # irfft_out = torch.irfft(rfft_out*high_out.permute(0,2,3,1).unsqueeze(-1),3)
-                    # print('irfft_out.shape: ', irfft_out.shape)
-
-                    # rfft_in = torch.rfft(bt_target.permute(0,2,3,1),3,onesided=False)
-                    # irfft_in = torch.irfft(rfft_in*low_in.permute(0,2,3,1).unsqueeze(-1),3)
-                    # out = irfft_in.permute(0,3,1,2) + irfft_out.permute(0,3,1,2)
-
-
-
-
-
-
-
-
                 predictions.extend(np.transpose(out.data.cpu().numpy(), [0, 2, 3, 1]))
-            if remain:
-                bt_source = source_images[n//bz*bz:]
-                bt_target = target[n//bz*bz:]
-                bt_tgt_affine = affines[n//bz*bz:]
-                bt_tgt_shift = shifts[n//bz*bz:]
-                bt_src_affine = source_affine[n//bz*bz:]
-                bt_src_shift = source_shift[n//bz*bz:]
-                bt_blend_mask = blend_mask_parts[n//bz*bz:]
-                out = reconstruction_module(source_image=bt_source, target_image=bt_target, target_affine=bt_tgt_affine, target_shift=bt_tgt_shift, source_affine=bt_src_affine, source_shift=bt_src_shift, blend_mask = bt_blend_mask)
-
-
-                #####
-                # 尝试新的光照迁移方法，用原来的视频帧里的光照信息加到生成后的视频上
-                #####
-                if not use_color_old_method:
-                    low_out = F.pad(out, (ka, kb, ka, kb))
-                    low_out = F.conv2d(low_out, weight=kernel, groups=3)
-                    high_out = out - low_out
-                    bt_target = bt_target.cuda()
-                    bt_target = F.pad(bt_target, (ka, kb, ka, kb))
-                    low_in = F.conv2d(bt_target, weight=kernel, groups=3)
-                    out = 0.5*out + 0.5*low_in
-                    # out = torch.ifft(torch.fft(out,3)*high_out) + torch.ifft(torch.fft(bt_target,3)*low_in)
-
-
-                predictions.extend(np.transpose(out.data.cpu().numpy(), [0, 2, 3, 1]))
-
-
 
         print("      - 生成图片时间: ", time.time()-start)
         return predictions
